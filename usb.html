@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <!-- <button id="request-any">USB Device</button> -->
+
+    <button id="request-51">Send 51 request</button>
+    <button id="request-52">Send 52 request</button>
+    <button id="request-53">Send 53 request</button>
+    <button id="send-bulk">Send Bulk</button>
+  </head>
+  <body></body>
+  <script>
+    document
+      .querySelector("#request-51")
+      .addEventListener("click", function (event) {
+        navigator.usb.requestDevice({ filters: [] }).then((usbDevice) => {
+          console.log(usbDevice);
+          console.log("Product name: " + usbDevice.productName);
+
+          usbDevice
+            .open()
+            .then(() => {
+              usbDevice
+                .controlTransferIn(
+                  {
+                    requestType: "vendor",
+                    recipient: "device",
+                    request: 51, // ACCESSORY_GET_PROTOCOL
+                    value: 0,
+                    index: 0,
+                  },
+                  2
+                )
+                .then((response) => {
+                  console.log("controlTransfer Response:", response);
+                  console.log(
+                    "response.data.getInt8(0)",
+                    response.data.getInt8(0)
+                  );
+
+                  if (response.data.getInt8(0) == 1) {
+                    console.log("AoA V1 available");
+                    alert("AoA V1 available");
+                  }
+                  if (response.data.getInt8(0) == 2) {
+                    console.log("AoA V2 available");
+                    alert("AoA V2 available");
+                  }
+                })
+                .catch((e) => {
+                  console.log("Can't send " + e);
+                  alert("Oops Can't send " + e);
+                });
+              // usbDevice
+            })
+            .catch((e) => {
+              console.log(e);
+            });
+        });
+      });
+
+    document
+      .querySelector("#request-52")
+      .addEventListener("click", function (event) {
+        let identifiers = [
+          "manufacturer",
+          "model",
+          "description",
+          "version",
+          "uri",
+          "serialnumber",
+        ];
+
+        navigator.usb.requestDevice({ filters: [] }).then((usbDevice) => {
+          for (var i = 0; i < identifiers.length; i++) {
+            usbDeviceidentifiers[i]
+              .controlTransferOut(
+                {
+                  requestType: "vendor",
+                  recipient: "device",
+                  request: 52, //ACCESSORY_SEND_STRING
+                  value: 0,
+                  index: i,
+                },
+                str2ab()
+              )
+              .then((response) => {
+                console.log("ready", response);
+              })
+              .catch((e) => {
+                console.error(e);
+                alert("Opps 51 response not succesful for " + identifiers[i]);
+                return;
+              });
+          }
+          alert("51 response success");
+        });
+
+        function str2ab(str) {
+          var buf = new ArrayBuffer(str.length * 2);
+          var bufView = new Uint16Array(buf);
+          for (var i = 0, strLen = str.length; i < strLen; i++) {
+            bufView[i] = str.charCodeAt(i);
+          }
+          console.log("buffer:", buf);
+          return buf;
+        }
+      });
+
+    document
+      .querySelector("#request-53")
+      .addEventListener("click", function (event) {
+        navigator.usb.requestDevice({ filters: [] }).then((usbDevice) => {
+          usbDevice
+            .controlTransferOut(
+              {
+                requestType: "vendor",
+                recipient: "device",
+                request: 53, //ACCESSORY_START
+                value: 0,
+                index: 0,
+              },
+              new ArrayBuffer(0)
+            )
+            .then((response) => {
+              console.log("53 response", response);
+              console.log(usbDevice);
+              alert("Successfully change to accessory mode");
+              // if (response.status == "ok") {
+              // usbDevice.close();
+              // }
+            })
+            .catch((e) => {
+              console.log("Can't send " + e);
+              alert("Opps Can't send " + e);
+            });
+
+          /**
+           * Endpoints
+           */
+          // const ep = USBEndpoint();
+          // console.log("ep", ep);
+          console.log("usbDevice.configuration:", usbDevice.configuration);
+
+          console.log(
+            "usbDevice.configuration.interfaces:",
+            usbDevice.configuration.interfaces
+          );
+
+          let inEndpoint = undefined;
+          let outEndpoint = undefined;
+
+          for (const { alternates } of usbDevice.configuration.interfaces) {
+            // Only support devices with out multiple alternate interfaces.
+            const alternate = alternates[0];
+            console.log("alternate:", alternate);
+            console.log("alternate interfaceClass:", alternate.interfaceClass);
+
+            // Identify the interface implementing the USB CDC class.
+            // const USB_CDC_CLASS = 10;
+            const USB_CDC_CLASS = 255;
+
+            if (alternate.interfaceClass !== USB_CDC_CLASS) {
+              continue;
+            }
+
+            for (const endpoint of alternate.endpoints) {
+              // Identify the bulk transfer endpoints.
+              if (endpoint.type !== "bulk") {
+                continue;
+              }
+
+              if (endpoint.direction === "in") {
+                inEndpoint = endpoint.endpointNumber;
+              } else if (endpoint.direction === "out") {
+                outEndpoint = endpoint.endpointNumber;
+              }
+            }
+
+            console.log("inEndpoint", inEndpoint);
+            console.log("outEndpoint", outEndpoint);
+          }
+        });
+      });
+
+    document
+      .querySelector("#send-bulk")
+      .addEventListener("click", function (event) {
+        navigator.usb.requestDevice({ filters: [] }).then((usbDevice) => {
+          const typedArray1 = new Int8Array(8);
+          typedArray1[0] = 32;
+
+          /**
+           * Endpoints
+           */
+          // const ep = USBEndpoint();
+          // console.log("ep", ep);
+          console.log("usbDevice.configuration:", usbDevice.configuration);
+          console.log(
+            "usbDevice.configuration.interfaces:",
+            usbDevice.configuration.interfaces
+          );
+
+          let inEndpoint = undefined;
+          let outEndpoint = undefined;
+          let local_interfaceNumber = undefined;
+          let alternateSetting = undefined;
+
+          for (const { alternates, interfaceNumber } of usbDevice.configuration
+            .interfaces) {
+            console.log("#########################");
+            // Only support devices with out multiple alternate interfaces.
+            const alternate = alternates[0];
+            console.log("alternate:", alternate);
+            console.log("alternate interfaceClass:", alternate.interfaceClass);
+            console.log("interfaceNumber:", interfaceNumber);
+
+            console.log(
+              "alternate alternateSetting:",
+              alternate.alternateSetting
+            );
+
+            local_interfaceNumber = interfaceNumber;
+            alternateSetting = alternate.alternateSetting;
+
+            // Identify the interface implementing the USB CDC class.
+            // const USB_CDC_CLASS = 10;
+            const USB_CDC_CLASS = 255;
+
+            if (alternate.interfaceClass !== USB_CDC_CLASS) {
+              continue;
+            }
+
+            for (const endpoint of alternate.endpoints) {
+              // Identify the bulk transfer endpoints.
+              if (endpoint.type !== "bulk") {
+                continue;
+              }
+
+              if (endpoint.direction === "in") {
+                inEndpoint = endpoint.endpointNumber;
+              } else if (endpoint.direction === "out") {
+                outEndpoint = endpoint.endpointNumber;
+              }
+            }
+
+            console.log("inEndpoint", inEndpoint);
+            console.log("outEndpoint", outEndpoint);
+            console.log("interfaceNumber:", local_interfaceNumber);
+            console.log("alternateSetting", alternateSetting);
+          }
+
+          usbDevice
+            .open()
+            .then(() => {
+              console.log("opened");
+              usbDevice
+                .selectConfiguration(usbDevice.configuration.configurationValue)
+                .then(() => {
+                  console.log(
+                    "configuration selected ->",
+                    usbDevice.configuration.configurationValue
+                  );
+
+                  usbDevice
+                    .claimInterface(
+                      usbDevice.configuration.interfaces[0].interfaceNumber
+                    )
+                    .then(() => {
+                      console.log(
+                        "Interface claimed -> ",
+                        usbDevice.configuration.interfaces[0].interfaceNumber
+                      );
+
+                      var string =
+                        "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
+                      string += "\x1B\x64\x02"; //Paper cutting code
+
+                      var encoder = new TextEncoder();
+                      var data = encoder.encode(string);
+
+                      console.log(
+                        "transferout",
+                        usbDevice.configuration.interfaces[0].alternate
+                          .endpoints[1].endpointNumber
+                      );
+
+                      console.log("usbdevice:", usbDevice);
+                      const typedArray1 = new Int8Array(8);
+                      typedArray1[0] = 32;
+                      usbDevice
+                        .transferOut(
+                          usbDevice.configuration.interfaces[0].alternate
+                            .endpoints[1].endpointNumber,
+                          data
+                        )
+                        .then((r) => {
+                          console.log("transferOut response:", r);
+                        })
+                        .catch((e) => {
+                          console.error("transferout error:", e);
+                        });
+                      // .selectAlternateInterface(local_interfaceNumber, alternateSetting)
+                      // usbDevice.selectAlternateInterface(0, 0).then(() => {
+                      //   console.log("typedArray", typedArray1);
+
+                      //   usbDevice
+                      //     .transferOut(1, typedArray1)
+                      //     .then((r) => {
+                      //       console.log("transferOut response:", r);
+                      //     })
+                      //     .catch((e) => {
+                      //       console.error("transferout error:", e);
+                      //     });
+                      //   // console.log("tranderOut response:",alternateSetting);
+                      //   // console.log(usbDevice);
+                      //   // alert("Successfully change to accessory mode");
+                      //   // if (response.status == "ok") {
+                      //   // usbDevice.close();
+                      //   // }
+                      // });
+                    })
+                    .catch((e) => {
+                      console.log(" g error " + e);
+                      alert("Opps g error " + e);
+                    });
+                });
+            })
+            .catch((e) => {
+              console.error("cannot open", e);
+            });
+        });
+      });
+
+    // document
+    //   .querySelector("#request-any")
+    //   .addEventListener("click", function (event) {
+    //     	navigator.usb.requestDevice({filters: [
+    //           {vendorId: 0x18d1, productId: 0x2D00},
+    //           {vendorId: 0x18d1, productId: 0x2D01},
+    //           {vendorId: 0x18d1, productId: 0x2D02},
+    //           {vendorId: 0x18d1, productId: 0x2D03},
+    //           {vendorId: 0x18d1, productId: 0x2D04},
+    //           {vendorId: 0x18d1, productId: 0x2D05}
+    //          ]}) .then( async(usbDevice) => {
+    //     		console.log(usbDevice);
+    //     		console.log("sbDevice.configuration",usbDevice.configuration);
+    //        console.log("Product name: " +usbDevice.productName);
+    //     	  await usbDevice.open();
+    //     		if (usbDevice.configuration === null){
+    //     		await usbDevice.selectConfiguration(1);
+    //     		}
+    //     		await usbDevice.claimInterface(0);
+    //           }).catch(e => {
+    //     	  console.log("There is no AoA device. " + e);
+    //       });
+    //   });
+  </script>
+</html>
